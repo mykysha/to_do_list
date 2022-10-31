@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:html';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 class TodoList extends StatefulWidget {
@@ -29,25 +30,39 @@ class TodoListState extends State<TodoList> {
   Widget _buildTodoList() {
     CookieManager.setCookie(_todoItems);
 
-    return ReorderableListView(
-      children: <Widget>[
-        for (final item in _todoItems)
-          Card(
-            key: ValueKey(item),
-            child: _buildTodoItem(item, _todoItems.indexOf(item)),
-          ),
-      ],
-      onReorder: (oldIndex, newIndex) {
-        setState(
-          () {
-            if (newIndex > oldIndex) {
-              newIndex -= 1;
-            }
-            final items = _todoItems.removeAt(oldIndex);
-            _todoItems.insert(newIndex, items);
+    return StreamBuilder(
+      stream: FirebaseFirestore.instance.collection('todoitems').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data == null) {
+          return const Text('No items to display');
+        }
+        return ReorderableListView.builder(
+          itemBuilder: (context, index) {
+            return _buildCard(snapshot.data!, index);
           },
+          onReorder: (oldIndex, newIndex) {
+            setState(
+              () {
+                if (newIndex > oldIndex) {
+                  newIndex -= 1;
+                }
+                final items = _todoItems.removeAt(oldIndex);
+                _todoItems.insert(newIndex, items);
+              },
+            );
+          },
+          itemCount: snapshot.data!.docs.length,
         );
       },
+    );
+  }
+
+  Widget _buildCard(QuerySnapshot<Map<String, dynamic>> itemQuery, int index) {
+    ToDoItem item = ToDoItem.fromMap(itemQuery.docs[index].data());
+
+    return Card(
+      key: ValueKey(item),
+      child: _buildTodoItem(item, index),
     );
   }
 
@@ -140,7 +155,12 @@ class TodoListState extends State<TodoList> {
               child: const Text('Add'),
               onPressed: () {
                 setState(() {
-                  _todoItems.add(ToDoItem(task: _textController.text));
+                  // _todoItems.add(ToDoItem(task: _textController.text));
+                  FirebaseFirestore.instance.collection('todoitems').add({
+                    'task': _textController.text,
+                    'isDone': false,
+                    'position': _todoItems.length
+                  });
                 });
                 _textController.clear();
                 Navigator.pop(context);
@@ -187,6 +207,12 @@ class ToDoItem {
         'task': task,
         'isDone': isDone,
       };
+
+  // fromMap is used to convert the Map to an object.
+  factory ToDoItem.fromMap(Map<String, dynamic> map) => ToDoItem(
+        task: map['task'],
+        isDone: map['isDone'],
+      );
 }
 
 class CookieManager {
